@@ -1,0 +1,318 @@
+<!DOCTYPE html>
+<meta charset="utf-8">
+
+
+<style>
+
+circle {
+ 
+stroke: #000;
+stroke-width: .5px;  
+}
+
+.axis {   
+  font: 10px sans-serif;               
+}
+
+.domain { 
+  fill: none; 
+  stroke: black; 
+  stroke-width; 2; 
+}
+
+
+.g-match circle {
+    fill: black;
+    fill-opacity: .2;
+}
+
+div.tooltip {   
+  position: absolute;           
+  text-align: center;           
+  width: 160px;                  
+  height: 28px;                 
+  padding: 2px;             
+  font: 12px sans-serif;        
+  background: lightsteelblue;   
+  border: 0px;      
+  border-radius: 8px;           
+  pointer-events: none;         
+}
+
+</style>
+<body>
+<script src="d3.js"></script>
+<script src="moment.min.js"></script>
+<script src="lang/nb.js"></script>
+<script src="underscore-min.js"></script>
+
+<div class='info'>
+
+<input id="changeAxis" value="Kjønn" type="button" onClick='changeAxis()'></input>
+<input id="doSearch" type="text" onkeyup='doSearch()'></input>
+
+
+</div>
+
+
+<script>
+
+
+var margin = {top: 40, right: 100, bottom: 10, left: 100},
+    width = 970 - margin.left - margin.right,
+    height = 800 - margin.top - margin.bottom;
+
+var padding = 1, // separation between nodes
+    maxRadius = 4;
+
+var formatTime = d3.time.format("%e %B");
+
+var n = 200, // total number of nodes
+    m = 10; // number of distinct clusters
+
+
+var color = d3.scale.ordinal()
+    .domain(["M23/34", "M16/17", "M35/39", "M18/19", "M40/44", "K40/44", "M50/54", "K35/39", "K23/34", "M55/59", "M45/49", "M20/22", "M60/64", "M12/13", "M65/69", "K45/49", "M14/15", "K50/54", "K14/15", "M70+", "K65/69", "K20-22"])
+    .range(["#b35806", "#f1a340", "#fee0b6", "#d8daeb", "#998ec3", "#fcfbfd", "#efedf5", "#dadaeb", "#bcbddc", "#9e9ac8", "#807dba", "#6a51a3", "#54278f", "#3f007d", "#f7fbff", "#deebf7", "#c6dbef", "#9ecae1", "#6baed6", "#4292c6", "#2171b5", "#08519c"]);
+
+
+var y1 = d3.scale.ordinal();
+var y2 = d3.scale.ordinal();
+
+var yAxis1,yAxis2;
+
+var selectedY = 1;
+var x = d3.scale.linear();
+
+
+var nodes = [];
+
+
+    var div = d3.select("body").append("div")
+        .attr("class", "tooltip")
+        .style("opacity", 0);
+
+    var svg = d3.select("body").append("svg")
+    .attr("height", height + margin.top + margin.bottom)
+    .attr("width", width + margin.left + margin.right)
+  .append("g")
+    .attr("transform", "translate(" + margin.left + "," + margin.top + ")");
+
+
+
+var force;
+
+function changeAxis() {
+
+    if (selectedY == 1) {
+        nodes.forEach(function(n) {     
+            n.cy = y2(n.Sex);
+        });
+        selectedY =  2;
+        d3.select("#changeAxis").attr('value', 'Klasse');
+
+        svg.select(".y")
+            .transition()
+            .duration(500)
+            .call(yAxis2);        
+    } else {
+        nodes.forEach(function(n) {     
+            n.cy = y1(n.Class);
+        });
+        selectedY =  1;
+        d3.select("#changeAxis").attr('value', 'Kjønn'); 
+        svg.select(".y")
+            .transition()
+            .duration(500)
+            .call(yAxis1);                  
+    }
+
+    force.start();
+    
+}
+
+
+var dsv = d3.dsv(";", "text/plain");
+dsv('Results-4509-20140602105523.csv', function(d, i) {
+    var duration = moment.duration(d['Total Time']);
+    d.ms = duration.asMilliseconds(); 
+    d.Sex = d.Class.substring(0,1);
+    return d;
+
+}, function(error, rows) {
+
+
+    nodes = _.filter(rows, function(r) {
+        return r.Group == 'Konkurranseklasse';
+    });
+
+    draw();
+
+});
+
+function doSearch() {
+
+    var v = document.getElementById("doSearch").value;
+    search(v);
+}
+
+
+
+function search(value) {
+    if (value) {
+        svg.selectAll("circle").style("opacity", .2);
+        var re = new RegExp("\\b" + d3.requote(value), "i");
+        var circle = svg.selectAll("circle");
+        circle.classed("g-match", function(d) { return re.test(d.Firstname) || re.test(d.Surname); });
+        var matches = d3.selectAll(".g-match");     
+        matches.style("opacity", 1);
+    } else {
+        svg.classed("g-match", false);
+        svg.selectAll("circle").style("opacity", 1);
+    }
+}
+
+
+
+function draw() {
+
+   var classes = _.uniq(_.pluck(nodes, 'Class'));
+    var sexes = _.uniq(_.pluck(nodes, 'Sex'));
+
+    y1 = y1.domain(classes)
+     .rangePoints([0, height], 2);    
+
+    y2 = y2.domain(sexes)
+     .rangePoints([0, height], 2); 
+
+
+    x.domain([d3.min(nodes, function(d) {
+            return d.ms;
+        }), d3.max(nodes, function(d) {
+            return d.ms;
+        })])
+        .range([0, width])
+        .nice();
+
+    nodes.forEach(function(n) {     
+        n.cx = x(n.ms);
+        n.cy = y1(n.Class);
+        n.radius = maxRadius;
+        n.color = color(n.Class);
+    });
+
+    force = d3.layout.force()
+        .nodes(nodes)
+        .size([width, height])
+        .gravity(0)
+        .charge(0)
+        .on("tick", tick)
+        .start();
+
+
+    var xAxis = d3.svg.axis()
+        .scale(x)
+        .orient("top")
+        .tickPadding(1)
+
+        .tickFormat(function(d){var m = moment.duration(d); return m.hours() + ':' + d3.format('02d')(m.minutes());});
+
+    svg.append("g")
+        .attr("class", "x axis")
+        .call(xAxis);
+
+    yAxis1 = d3.svg.axis()
+        .scale(y1)
+        .orient("left")
+        .tickPadding(6);    
+
+    yAxis2 = d3.svg.axis()
+        .scale(y2)
+        .orient("left")
+        .tickPadding(6);   
+
+    svg.append("g")
+        .attr("class", "y axis")
+        .call(yAxis1);
+
+
+    var circle = svg.selectAll("circle")
+        .data(nodes)
+        .enter().append("circle")
+
+    .attr("r", function(d) {
+        return d.radius;
+    })
+        .style("fill", function(d) {
+            return d.color;
+        })
+        .on("mouseover", function(d) {
+            div.transition()
+                .duration(200)
+                .style("opacity", .9);
+            div.html(d.Firstname + ' ' + d.Surname + "<br/>" + d.Class + ' ' + d['Total Time'])
+                .style("left", (d3.event.pageX) + "px")
+                .style("top", (d3.event.pageY - 28) + "px");
+        })
+        .on("mouseout", function(d) {
+            div.transition()
+                .duration(500)
+                .style("opacity", 0);
+        })
+        .call(force.drag);
+
+    function tick(e) {
+        circle
+            .each(gravity(.2 * e.alpha))
+            .each(collide(.5))
+            .attr("cx", function(d) {
+                return d.x;
+            })
+            .attr("cy", function(d) {
+                return d.y;
+            });
+    }
+
+    // Move nodes toward cluster focus.
+    function gravity(alpha) {
+        return function(d) {
+            d.y += (d.cy - d.y) * alpha;
+            d.x += (d.cx - d.x) * alpha;
+        };
+    }
+
+    // Resolve collisions between nodes.
+    function collide(alpha) {
+        var quadtree = d3.geom.quadtree(nodes);
+        return function(d) {
+            var r = d.radius + maxRadius + padding,
+                nx1 = d.x - r,
+                nx2 = d.x + r,
+                ny1 = d.y - r,
+                ny2 = d.y + r;
+            quadtree.visit(function(quad, x1, y1, x2, y2) {
+                if (quad.point && (quad.point !== d)) {
+                    var x = d.x - quad.point.x,
+                        y = d.y - quad.point.y,
+                        l = Math.sqrt(x * x + y * y),
+                        //r = d.radius + quad.point.radius + (d.color !== quad.point.color) * padding;
+                        r = d.radius + quad.point.radius +  padding;
+                    if (l < r) {
+                        l = (l - r) / l * alpha;
+                        d.x -= x *= l;
+                        d.y -= y *= l;
+                        quad.point.x += x;
+                        quad.point.y += y;
+                    }
+                }
+                return x1 > nx2 || x2 < nx1 || y1 > ny2 || y2 < ny1;
+            });
+        };
+    }
+
+
+
+}
+
+
+</script>
